@@ -1,0 +1,220 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "Name": {
+      "type": "string"
+    },
+    "objectId": {
+      "type": "string",
+      "metadata": {
+        "description": "Object Id of the AD user. Get using Get-AzureRmADUser or Get-AzureRmADServicePrincipal cmdlets"
+      }
+    },
+    "VMAdminPassword": {
+      "type": "securestring"
+    },
+    "VMAdminUserName": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "resources": [
+    {
+      "apiVersion": "2015-04-08",
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "kind": "GlobalDocumentDB",
+      "name": "[variables('CosmosDBName')]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "name": "[variables('databaseAccountName')]",
+        "databaseAccountOfferType": "[variables('offerType')]",
+        "locations": [
+          {
+            "locationName": "[resourceGroup().location]",
+            "failoverPriority": 0
+          },
+          {
+            "locationName": "northeurope",
+            "failoverPriority": 1
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableTable"
+          }
+        ]
+      },
+      "tags": {
+        "defaultExperience": "Table",
+        "displayName": "CosmosDB"
+      }
+    },
+    {
+      "apiVersion": "2016-01-01",
+      "dependsOn": [],
+      "kind": "Storage",
+      "location": "[resourceGroup().location]",
+      "name": "[variables('BlobName')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "tags": {
+        "displayName": "Storage Account"
+      },
+      "type": "Microsoft.Storage/storageAccounts"
+    },
+    {
+      "apiVersion": "2016-03-30",
+      "dependsOn": [],
+      "location": "[resourceGroup().location]",
+      "name": "[variables('VnetName')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('VNetPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('VNetSubnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('VNetSubnetPrefix')]"
+            }
+          }
+        ]
+      },
+      "tags": {
+        "displayName": "Virtual Network"
+      },
+      "type": "Microsoft.Network/virtualNetworks"
+    },
+    {
+      "apiVersion": "2016-03-30",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('VnetName'))]"
+      ],
+      "location": "[resourceGroup().location]",
+      "name": "[variables('VMNicName')]",
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('VMSubnetRef')]"
+              }
+            }
+          }
+        ]
+      },
+      "tags": {
+        "displayName": "VM Nic"
+      },
+      "type": "Microsoft.Network/networkInterfaces"
+    },
+    {
+      "apiVersion": "2015-06-15",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('BlobName'))]",
+        "[resourceId('Microsoft.Network/networkInterfaces', variables('VMNicName'))]"
+      ],
+      "location": "[resourceGroup().location]",
+      "name": "[variables('VMName')]",
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[variables('VMVmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('VMName')]",
+          "adminUsername": "[parameters('VMAdminUsername')]",
+          "adminPassword": "[parameters('VMAdminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "offer": "[variables('VMImageOffer')]",
+            "publisher": "[variables('VMImagePublisher')]",
+            "sku": "2012-R2-Datacenter",
+            "version": "latest"
+          },
+          "osDisk": {
+            "caching": "ReadWrite",
+            "createOption": "FromImage",
+            "name": "[variables('VMOSDiskName')]",
+            "vhd": {
+              "uri": "[concat(reference(resourceId('Microsoft.Storage/storageAccounts', variables('BlobName')), '2016-01-01').primaryEndpoints.blob, variables('VMStorageAccountContainerName'), '/', variables('VMOSDiskName'), '.vhd')]"
+            }
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('VMNicName'))]"
+            }
+          ]
+        }
+      },
+      "tags": {
+        "displayName": "Virtual Machine"
+      },
+      "type": "Microsoft.Compute/virtualMachines"
+    },
+    {
+      "apiVersion": "2016-10-01",
+      "location": "[resourceGroup().location]",
+      "name": "[variables('KVName')]",
+      "properties": {
+        "enabledForDeployment": "[variables('enableVaultForDeployment')]",
+        "enabledForDiskEncryption": "[variables('enableVaultForDiskEncryption')]",
+        "enabledForTemplateDeployment": "[variables('enabledForTemplateDeployment')]",
+        "tenantId": "[variables('tenantId')]",
+        "accessPolicies": [
+          {
+            "tenantId": "[variables('tenantId')]",
+            "objectId": "[parameters('objectId')]",
+            "permissions": {
+              "keys": "[variables('keysPermissions')]",
+              "secrets": "[variables('secretsPermissions')]"
+            }
+          }
+        ],
+        "sku": {
+          "name": "[variables('skuName')]",
+          "family": "A"
+        }
+      },
+      "type": "Microsoft.KeyVault/vaults",
+      "tags": {
+        "displayName" : "Key Vault"
+      }
+    }
+  ],
+  "variables": {
+    "BlobName": "[concat('sa', parameters('Name'), uniqueString(resourceGroup().id))]",
+    "KVName": "[concat('KV',parameters('Name'))]",
+    "offerType": "Standard",
+    "VMImageOffer": "WindowsServer",
+    "VMImagePublisher": "MicrosoftWindowsServer",
+    "VMName": "[concat('VM',parameters('Name'))]",
+    "VMNicName": "[concat(variables('VMName'),variables('VnetName'),variables('VNetSubnetName'))]",
+    "VMOSDiskName": "[concat('VHD',variables('VMName'),'OS')]",
+    "VMStorageAccountContainerName": "vhds",
+    "VMSubnetRef": "[concat(variables('VMVnetID'), '/subnets/', variables('VNetSubnetName'))]",
+    "VMVmSize": "Standard_D2_v2",
+    "VMVnetID": "[resourceId('Microsoft.Network/virtualNetworks', variables('VnetName'))]",
+    "VnetName": "[concat('vnet', parameters('Name'))]",
+    "VNetPrefix": "10.0.0.0/16",
+    "VNetSubnetName": "[concat('vnetsubnet',parameters('Name'))]",
+    "VNetSubnetPrefix": "10.0.0.0/24",
+    "enableVaultForDeployment": "false",
+    "enableVaultForDiskEncryption": "false",
+    "enabledForTemplateDeployment": "false",
+    "tenantId": "[subscription().tenantId]",
+    "keysPermissions": [ "all" ],
+    "secretsPermissions": [ "all" ],
+    "skuName": "Standard",
+    "CosmosDBName": "[concat('DB',parameters('Name'))]",
+    "databaseAccountName" : "[concat('DBA',parameters('Name'))]"
+  }
+}

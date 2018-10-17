@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "Name": {
+      "value": "test"
+    },
+    "objectId": {
+      "value": "456e6ed5-b141-4f17-95a3-b4e76a33c27e"
+    },
+    "VMAdminPassword": {
+      "value": "Pa55w.rd1234"
+    },
+    "VMAdminUserName": {
+      "value": "student"
+    }
+  }
+}
